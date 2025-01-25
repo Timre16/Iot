@@ -1,9 +1,7 @@
 import serial
 import struct
-import time
 import numpy as np
 import matplotlib.pyplot as plt
-
 
 class LiteVNA:
     def __init__(self, port, baudrate=115200, timeout=1):
@@ -46,10 +44,14 @@ class LiteVNA:
         command = struct.pack("B", 0x20) + struct.pack("B", address) + struct.pack("B", 0x00)
         self.send_command(command)
 
-    def configure_sweep(self, start_freq, step_freq, points):
-        self.write_register(0x00, start_freq, 8)
-        self.write_register(0x10, step_freq, 8)
-        self.write_register(0x20, points, 2)
+    def configure_sweep(self, start_freq, step_freq, points, averages=2):
+        self.write_register(0x00, start_freq, 8)  # sweepStartHz
+        self.write_register(0x10, step_freq, 8)  # sweepStepHz
+        self.write_register(0x20, points, 2)     # sweepPoints
+        self.write_register(0x22, 1, 2)         # valuesPerFrequency = 1
+        self.write_register(0x40, averages, 1)  # Average
+        self.write_register(0x41, 0x01, 1)      # LowFrequencyPower
+        self.write_register(0x42, 0x03, 1)      # HighFrequencyPower
 
     def get_s11_magnitude(self, fifo_data):
         fwd0_re = int.from_bytes(fifo_data[0:4], "little", signed=True)
@@ -60,22 +62,33 @@ class LiteVNA:
         fwd0 = complex(fwd0_re, fwd0_im)
         rev0 = complex(rev0_re, rev0_im)
 
-        s11 = rev0 / fwd0 if abs(fwd0) > 1e-9 else 0
-        s11_magnitude_db = 20 * np.log10(abs(s11)) if abs(s11) > 1e-9 else -float("inf")
-        return s11_magnitude_db
+        if abs(fwd0) > 1e-9:
+            s11 = rev0 / fwd0
+        else:
+            s11 = 0
 
+        s11_magnitude_db = 20 * np.log10(abs(s11)) if abs(s11) > 1e-9 else -float("inf")
+
+        # Debugging-Ausgaben
+        print(f"Debug - FWD: {fwd0}, REV: {rev0}, S11: {s11}, Magnitude: {s11_magnitude_db} dB")
+        print(f"Raw FIFO Data: {fifo_data.hex()}")
+
+        # Offset für Korrektur
+        s11_magnitude_db += 2  # Falls nötig
+        return s11_magnitude_db
 
 def main():
     port = "COM3"  # Replace with your LiteVNA's port
     litevna = LiteVNA(port)
 
     try:
-        start_freq = 1200000000  # 1 GHz
-        stop_freq = 2000000000  # 2 GHz
-        points = 201 
+        start_freq = 1200000000  # 1.2 GHz
+        stop_freq = 2000000000   # 2 GHz
+        points = 201
 
         step_freq = (stop_freq - start_freq) // (points - 1)
-        litevna.configure_sweep(start_freq, step_freq, points)
+        averages = 2
+        litevna.configure_sweep(start_freq, step_freq, points, averages)
 
         print("Initializing real-time plot...")
         plt.ion()
@@ -92,6 +105,10 @@ def main():
             litevna.clear_fifo(0x30)
             fifo_data = litevna.read_fifo(0x30, 32 * points)
 
+            if len(fifo_data) != 32 * points:
+                print(f"Fehler: Erwartet {32 * points} Bytes, erhalten {len(fifo_data)} Bytes")
+                continue
+
             s11_magnitudes = []
             for i in range(points):
                 data = fifo_data[i * 32 : (i + 1) * 32]
@@ -99,7 +116,7 @@ def main():
 
             # Update plot
             line.set_ydata(s11_magnitudes)
-            ax.set_ylim(min(s11_magnitudes) - 1, max(s11_magnitudes) + 1)  # Adjust y-axis dynamically
+            ax.set_ylim(min(s11_magnitudes) - 1, max(s11_magnitudes) + 1)
             plt.pause(0.1)
 
     except KeyboardInterrupt:
@@ -107,11 +124,5 @@ def main():
     finally:
         litevna.close()
 
-
 if __name__ == "__main__":
     main()
-
-
-
-
-
