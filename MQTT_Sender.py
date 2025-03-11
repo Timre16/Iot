@@ -2,7 +2,7 @@ import paho.mqtt.client as mqtt
 from datetime import datetime
 
 # MQTT Konfiguration
-MQTT_BROKER = "iot-lab01.ei.thm.de"
+MQTT_BROKER = "iot-lab-03.ei.thm.de"
 MQTT_PORT = 50313
 MQTT_TOPIC = "THM/IoTLab/CCCEProjectMoisture/Data"
 

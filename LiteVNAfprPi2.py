@@ -6,11 +6,6 @@ from datetime import datetime
 import time
 
 # MQTT Konfiguration
-#MQTT_BROKER = "iot-lab01.ei.thm.de"
-#MQTT_PORT = 50313
-#MQTT_TOPIC = "THM/IoTLab/CCCEProjectMoisture/Data"
-
-# MQTT Konfiguration
 MQTT_BROKER = "localhost"
 MQTT_PORT = 50233
 MQTT_TOPIC = "THM/IoTLab/CCCEProjectMoisture/Data"
@@ -21,7 +16,6 @@ class LiteVNA:
         self._initialize_calibration()
 
     def _initialize_calibration(self):
-        """Sendet den Befehl, um kalibrierte Daten zu aktivieren."""
         command = struct.pack("BBB", 0x20, 0x26, 0x03)
         self.send_command(command)
         print("Calibration mode enabled (0x20 0x26 0x03 sent).")
@@ -64,47 +58,34 @@ class LiteVNA:
         self.send_command(command)
 
     def configure_sweep(self, start_freq, step_freq, points, averages=2):
-        self.write_register(0x00, start_freq, 8)  # sweepStartHz
-        self.write_register(0x10, step_freq, 8)  # sweepStepHz
-        self.write_register(0x20, points, 2)     # sweepPoints
-        self.write_register(0x22, 1, 2)         # valuesPerFrequency = 1
-        self.write_register(0x40, averages, 1)  # Average
-        self.write_register(0x41, 0x01, 1)      # LowFrequencyPower
-        self.write_register(0x42, 0x03, 1)      # HighFrequencyPower
+        self.write_register(0x00, start_freq, 8)
+        self.write_register(0x10, step_freq, 8)
+        self.write_register(0x20, points, 2)
+        self.write_register(0x22, 1, 2)
+        self.write_register(0x40, averages, 1)
+        self.write_register(0x41, 0x01, 1)
+        self.write_register(0x42, 0x03, 1)
 
     def get_s11_magnitude(self, fifo_data):
         fwd0_re = int.from_bytes(fifo_data[0:4], "little", signed=True)
         fwd0_im = int.from_bytes(fifo_data[4:8], "little", signed=True)
         rev0_re = int.from_bytes(fifo_data[8:12], "little", signed=True)
         rev0_im = int.from_bytes(fifo_data[12:16], "little", signed=True)
-
+        
         fwd0 = complex(fwd0_re, fwd0_im)
         rev0 = complex(rev0_re, rev0_im)
-
-        if abs(fwd0) > 1e-9:
-            s11 = rev0 / fwd0
-        else:
-            s11 = 0
-
+        
+        s11 = rev0 / fwd0 if abs(fwd0) > 1e-9 else 0
         s11_magnitude_db = 20 * np.log10(abs(s11)) if abs(s11) > 1e-9 else -float("inf")
-
-        # Debugging-Ausgaben
-        #print(f"Debug - FWD: {fwd0}, REV: {rev0}, S11: {s11}, Magnitude: {s11_magnitude_db} dB")
-        #print(f"Raw FIFO Data: {fifo_data.hex()}")
-
-        # Offset für Korrektur
-        s11_magnitude_db += 2  # Falls nötig
-        return s11_magnitude_db
+        return s11_magnitude_db + 2
 
 def main():
-    port = "COM3"  # Replace with your LiteVNA's port
+    port = "COM3"  # Replace with actual LiteVNA port
     litevna = LiteVNA(port)
-
     try:
         start_freq = 1200000000  # 1.2 GHz
         stop_freq = 2000000000   # 2 GHz
         points = 201
-
         step_freq = (stop_freq - start_freq) // (points - 1)
         averages = 2
         litevna.configure_sweep(start_freq, step_freq, points, averages)
@@ -112,32 +93,32 @@ def main():
         while True:
             litevna.clear_fifo(0x30)
             fifo_data = litevna.read_fifo(0x30, 32 * points)
-
             if len(fifo_data) != 32 * points:
                 print(f"Fehler: Erwartet {32 * points} Bytes, erhalten {len(fifo_data)} Bytes")
                 continue
 
-            s11_magnitudes = []
+            min_amplitude = float("inf")
+            min_freq = None
+            
             for i in range(points):
-                data = fifo_data[i * 32 : (i + 1) * 32]
-                s11_magnitudes.append(str(litevna.get_s11_magnitude(data)))
+                data = fifo_data[i * 32: (i + 1) * 32]
+                amplitude = litevna.get_s11_magnitude(data)
+                freq = start_freq + i * step_freq
+                if amplitude < min_amplitude:
+                    min_amplitude = amplitude
+                    min_freq = freq
+            
+            if min_freq is not None:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                message = f"{timestamp};{min_freq / 1e9} GHz;{min_amplitude} dB"
                 
-                # Create MQTT client and connect
+                client = mqtt.Client()
+                client.connect(MQTT_BROKER, MQTT_PORT, 60)
+                client.publish(MQTT_TOPIC, message)
+                client.disconnect()
+                print(f"Daten gesendet: {message}")
             
-
-            zeit_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            sent_data = ';'.join(s11_magnitudes)
-            
-            client = mqtt.Client()
-            client.connect(MQTT_BROKER, MQTT_PORT, 60)
-            client.publish(MQTT_TOPIC, zeit_str + ";" + str(sent_data))
-            #print(f"Daten gesendet: {temperature} an {MQTT_TOPIC}")
-
-            # Close connection
-            client.disconnect()
-            
-            time.sleep(30)
-
+            time.sleep(5)
     except KeyboardInterrupt:
         print("\nTerminating...")
     finally:
