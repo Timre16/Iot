@@ -11,7 +11,6 @@ MQTT_PORT = 50313
 MQTT_TOPIC = "THM/IoTLab/CCCEProjectMoisture/Data"
 
 # Calibration data: each row is [amplitude (dB), moisture (%)]
-# Replace these sample values with your actual calibration data.
 calibration_data = [
     [-13.6, 0],
     [-18.05, 7.692],
@@ -65,6 +64,7 @@ class LiteVNA:
     def read_response(self, length):
         return self.ser.read(length)
 
+    #write values in register corresponding to LiteVNA user guide
     def write_register(self, address, value, length):
         if length == 1:
             command = struct.pack("B", 0x20) + struct.pack("B", address) + struct.pack("B", value)
@@ -78,6 +78,7 @@ class LiteVNA:
             raise ValueError("Unsupported register length.")
         self.send_command(command)
 
+    #read the fifo values according to the LiteVNA user guide
     def read_fifo(self, address, count):
         data = b""
         while count > 0:
@@ -92,40 +93,49 @@ class LiteVNA:
         command = struct.pack("B", 0x20) + struct.pack("B", address) + struct.pack("B", 0x00)
         self.send_command(command)
 
+    #configure sweep measurement for frequency domain
     def configure_sweep(self, start_freq, step_freq, points, averages=2):
-        self.write_register(0x00, start_freq, 8)
-        self.write_register(0x10, step_freq, 8)
-        self.write_register(0x20, points, 2)
-        self.write_register(0x22, 1, 2)
-        self.write_register(0x40, averages, 1)
+        self.write_register(0x00, start_freq, 8) #start frequency
+        self.write_register(0x10, step_freq, 8) #steps
+        self.write_register(0x20, points, 2) #number of points
+        self.write_register(0x22, 1, 2) 
+        self.write_register(0x40, averages, 1) #set average
         self.write_register(0x41, 0x01, 1)
         self.write_register(0x42, 0x03, 1)
 
+    #returns the magnitude of S11
     def get_s11_magnitude(self, fifo_data):
+        #retreiving the imaginary and real part of the 2 bytes of each binary data block
         fwd0_re = int.from_bytes(fifo_data[0:4], "little", signed=True)
         fwd0_im = int.from_bytes(fifo_data[4:8], "little", signed=True)
         rev0_re = int.from_bytes(fifo_data[8:12], "little", signed=True)
         rev0_im = int.from_bytes(fifo_data[12:16], "little", signed=True)
         
+        #Convert into complex numbers
         fwd0 = complex(fwd0_re, fwd0_im)
         rev0 = complex(rev0_re, rev0_im)
         
+        #calculate S11 and its magnitude
         s11 = rev0 / fwd0 if abs(fwd0) > 1e-9 else 0
         s11_magnitude_db = 20 * np.log10(abs(s11)) if abs(s11) > 1e-9 else -float("inf")
+        #return the magnitude as result
         return s11_magnitude_db
 
 def main():
-    port = "COM3"  # Replace with actual LiteVNA port
-    litevna = LiteVNA(port)
-    try:
-        start_freq = 1200000000  # 1.2 GHz
-        stop_freq = 2000000000   # 2 GHz
-        points = 201
-        step_freq = (stop_freq - start_freq) // (points - 1)
-        averages = 2
-        litevna.configure_sweep(start_freq, step_freq, points, averages)
+    #port = "/dev/ttyUSB0"  # Replace with actual LiteVNA port
+    port = "COM3"
+    while True:
+        try:
+            
+            litevna = LiteVNA(port)
+            start_freq = 1200000000  # 1.2 GHz
+            stop_freq = 2000000000   # 2 GHz
+            points = 201
+            step_freq = (stop_freq - start_freq) // (points - 1)
+            averages = 2
+            litevna.configure_sweep(start_freq, step_freq, points, averages)
 
-        while True:
+        
             litevna.clear_fifo(0x30)
             fifo_data = litevna.read_fifo(0x30, 32 * points)
             if len(fifo_data) != 32 * points:
@@ -135,10 +145,14 @@ def main():
             min_amplitude = float("inf")
             min_freq = None
             
+            #loop over all 201 measuring points
             for i in range(points):
+                #raw fifo data
                 data = fifo_data[i * 32: (i + 1) * 32]
+                #calculate S11 magnitude
                 amplitude = litevna.get_s11_magnitude(data)
                 freq = start_freq + i * step_freq
+                #set lowest frequency to current, if it is lower
                 if amplitude < min_amplitude:
                     min_amplitude = amplitude
                     min_freq = freq
@@ -150,17 +164,23 @@ def main():
                 moisture = calculate_moisture_from_amplitude(min_amplitude, calibration_data)
                 message = f"{timestamp};{measured_freq_GHz} GHz;{min_amplitude} dB;{moisture}% "
                 
-                client = mqtt.Client()
-                client.connect(MQTT_BROKER, MQTT_PORT, 60)
-                client.publish(MQTT_TOPIC, message)
-                client.disconnect()
-                print(f"Daten gesendet: {message}")
+                #Mqtt client connection
+                try:
+                    client = mqtt.Client()
+                    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+                    client.publish(MQTT_TOPIC, message)
+                    client.disconnect()
+                    print(f"Data sent: {message}")
+                except:
+                    print("No MQTT connection")
             
             time.sleep(2)
-    except KeyboardInterrupt:
-        print("\nTerminating...")
-    finally:
-        litevna.close()
+        except:
+            print("No LiteVNA connection")
+            time.sleep(2)
+        
+            
+    
 
 if __name__ == "__main__":
     main()

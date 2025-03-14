@@ -13,7 +13,7 @@ client.connect(MQTT_BROKER, MQTT_PORT, 60)
 # Beispielhafte Daten senden
 temperature = 22.5  # Beispielwert
 zeit_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-client.publish(MQTT_TOPIC, str(temperature) + "; " + zeit_str)
+client.publish(MQTT_TOPIC, "2.564720223627498")
 print(f"Daten gesendet: {temperature} an {MQTT_TOPIC}")
 
 # Verbindung schließen
