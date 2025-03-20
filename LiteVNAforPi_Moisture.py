@@ -52,7 +52,7 @@ class LiteVNA:
     def _initialize_calibration(self):
         command = struct.pack("BBB", 0x20, 0x26, 0x03)
         self.send_command(command)
-        print("Calibration mode enabled (0x20 0x26 0x03 sent).")
+        #print("Calibration mode enabled (0x20 0x26 0x03 sent).")
 
     def close(self):
         if self.ser.is_open:
@@ -139,7 +139,7 @@ def main():
             litevna.clear_fifo(0x30)
             fifo_data = litevna.read_fifo(0x30, 32 * points)
             if len(fifo_data) != 32 * points:
-                print(f"Fehler: Erwartet {32 * points} Bytes, erhalten {len(fifo_data)} Bytes")
+                print(f"Error: Expected {32 * points} Bytes, received {len(fifo_data)} Bytes")
                 continue
 
             min_amplitude = float("inf")
@@ -162,21 +162,21 @@ def main():
                 measured_freq_GHz = min_freq / 1e9
                 # Calculate moisture using the new 2D calibration array.
                 moisture = calculate_moisture_from_amplitude(min_amplitude, calibration_data)
-                message = f"{timestamp};{measured_freq_GHz} GHz;{min_amplitude} dB;{moisture}% "
-                
+                message = f"{timestamp};{measured_freq_GHz} GHz;{min_amplitude} dB;" #{moisture}% 
+                print(message)
                 #Mqtt client connection
-                try:
-                    client = mqtt.Client()
-                    client.connect(MQTT_BROKER, MQTT_PORT, 60)
-                    client.publish(MQTT_TOPIC, message)
-                    client.disconnect()
-                    print(f"Data sent: {message}")
-                except:
-                    print("No MQTT connection")
+                #try:
+                    #client = mqtt.Client()
+                    #client.connect(MQTT_BROKER, MQTT_PORT, 60)
+                    #client.publish(MQTT_TOPIC, message)
+                    #client.disconnect()
+                    #print(f"Data sent: {message}")
+                #except:
+                    #print("No MQTT connection")
             
             time.sleep(2)
-        except:
-            print("No LiteVNA connection")
+        except Exception as error:
+            print("No LiteVNA connection " + str(error))
             time.sleep(2)
         
             

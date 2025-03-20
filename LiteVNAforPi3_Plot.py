@@ -4,6 +4,7 @@ import numpy as np
 import paho.mqtt.client as mqtt
 from datetime import datetime
 import time
+import matplotlib.pyplot as plt
 
 # MQTT Konfiguration
 MQTT_BROKER = "localhost"
@@ -89,7 +90,16 @@ def main():
         step_freq = (stop_freq - start_freq) // (points - 1)
         averages = 2
         litevna.configure_sweep(start_freq, step_freq, points, averages)
-
+        print("Initializing real-time plot...")
+        plt.ion()
+        fig, ax = plt.subplots()
+        freqs = np.linspace(start_freq, stop_freq, points)
+        line, = ax.plot(freqs, np.zeros(points), label="S11 Magnitude (dB)")
+        ax.set_xlabel("Frequency (Hz)")
+        ax.set_ylabel("S11 Magnitude (dB)")
+        ax.set_title("Real-Time S11 Magnitude")
+        ax.legend()
+        ax.grid()
         while True:
             litevna.clear_fifo(0x30)
             fifo_data = litevna.read_fifo(0x30, 32 * points)
@@ -107,16 +117,24 @@ def main():
                 if amplitude < min_amplitude:
                     min_amplitude = amplitude
                     min_freq = freq
-            
-            if min_freq is not None:
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                message = f"{timestamp};{min_freq / 1e9} GHz;{min_amplitude} dB"
+            s11_magnitudes = []
+            for i in range(points):
+                data = fifo_data[i * 32 : (i + 1) * 32]
+                s11_magnitudes.append(litevna.get_s11_magnitude(data))
+            # Update plot
+            line.set_ydata(s11_magnitudes)
+            ax.set_ylim(min(s11_magnitudes) - 1, max(s11_magnitudes) + 1)
+            plt.pause(0.1)
+            print(s11_magnitudes)
+            #if min_freq is not None:
+                #timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                #message = f"{timestamp};{min_freq / 1e9} GHz;{min_amplitude} dB"
                 
                 #client = mqtt.Client()
                 #client.connect(MQTT_BROKER, MQTT_PORT, 60)
                 #client.publish(MQTT_TOPIC, message)
                 #client.disconnect()
-                print(f"Daten gesendet: {message}")
+                #print(f"Daten gesendet: {message}")
             
             time.sleep(2)
     except KeyboardInterrupt:
