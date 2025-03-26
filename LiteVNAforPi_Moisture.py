@@ -10,38 +10,38 @@ MQTT_BROKER = "iot-lab-03.ei.thm.de"
 MQTT_PORT = 50313
 MQTT_TOPIC = "THM/IoTLab/CCCEProjectMoisture/Data"
 
-# Calibration data: each row is [amplitude (dB), moisture (%)]
+# Calibration data: each row is [frequency (GHz), amplitude (dB), moisture (%)]
 calibration_data = [
-    [-13.6, 0],
-    [-18.05, 7.692],
-    [-19.00, 15.38],
-    [-19.15, 23.07],
-    [-30, 30.76],
-    [-32.04, 38.46],
-    [-34.00, 46.15],
-    [-35.2, 53.84],
-    [-36.00, 61.53],
-    [-38.32, 69.23],
-    [-40.05, 76.92],
-    [-43.01, 84.61],
-    [-46.66, 92.30],
-    [-47.02, 100]
+    [1.788, -8.37, 0],
+    [1.728, -9.35, 6.25],
+    [1.702, -9.55, 12.5],
+    [1.698, -9.61, 18.75],
+    [1.692, -9.66, 25],
+    [1.656, -9.7, 31.25],
+    [1.652, -10.5, 37.5],
+    [1.58, -13.4, 43.75],
+    [1.564, -15.1, 50],
+    [1.516, -18.2, 56.25],
+    [1.5, -24.65, 62.5],
+    [1.488, -25.6, 68.75]
 ]
 
-def calculate_moisture_from_amplitude(measured_amp, calibration_data):
+
+def calculate_moisture_from_amplitude(measured_frequ, calibration_data):
     """
-    Calculates the moisture percentage for a given measured amplitude using
+    Calculates the moisture percentage for a given measured frequence using
     linear interpolation based on calibration_data.
     
-    calibration_data: 2D array where each row is [amplitude (dB), moisture (%)]
+    calibration_data: 2D array where each row is [frequency (GHz), amplitude (dB), moisture (%)]
     """
     # Ensure the calibration data is sorted in ascending order by amplitude.
     sorted_data = sorted(calibration_data, key=lambda x: x[0])
-    calib_amps = [row[0] for row in sorted_data]
-    calib_moisture = [row[1] for row in sorted_data]
+    calib_frequ = [row[0] for row in sorted_data]
+    calib_amps = [row[1] for row in sorted_data]
+    calib_moisture = [row[2] for row in sorted_data]
     
     # Use numpy.interp to linearly interpolate the moisture value.
-    moisture = np.interp(measured_amp, calib_amps, calib_moisture)
+    moisture = np.interp(measured_frequ, calib_frequ, calib_amps, calib_moisture)
     return moisture
 
 class LiteVNA:
@@ -161,18 +161,18 @@ def main():
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 measured_freq_GHz = min_freq / 1e9
                 # Calculate moisture using the new 2D calibration array.
-                moisture = calculate_moisture_from_amplitude(min_amplitude, calibration_data)
-                message = f"{timestamp};{measured_freq_GHz} GHz;{min_amplitude} dB;" #{moisture}% 
+                moisture = calculate_moisture_from_amplitude(measured_freq_GHz, calibration_data)
+                message = f"{timestamp};{measured_freq_GHz} GHz;{min_amplitude} dB; {moisture}% "
                 print(message)
                 #Mqtt client connection
-                #try:
-                    #client = mqtt.Client()
-                    #client.connect(MQTT_BROKER, MQTT_PORT, 60)
-                    #client.publish(MQTT_TOPIC, message)
-                    #client.disconnect()
-                    #print(f"Data sent: {message}")
-                #except:
-                    #print("No MQTT connection")
+                try:
+                    client = mqtt.Client()
+                    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+                    client.publish(MQTT_TOPIC, message)
+                    client.disconnect()
+                    print(f"Data sent: {message}")
+                except:
+                    print("No MQTT connection")
             
             time.sleep(2)
         except Exception as error:
